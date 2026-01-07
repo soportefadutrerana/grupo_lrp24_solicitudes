@@ -1,0 +1,35 @@
+# Archivos de configuración de base de datos
+config.php
+
+# Archivos subidos por usuarios
+uploads/
+Uploads/
+*.csv
+*.xlsx
+*.xls
+
+# Archivos temporales
+*.tmp
+*.log
+*.bak
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de Node.js (si aplica)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Archivos de entorno
+.env
+.env.local
