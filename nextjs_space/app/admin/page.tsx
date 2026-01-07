@@ -9,8 +9,13 @@ import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  DropResult,
+} from "@hello-pangea/dnd";
+import {
   LayoutDashboard,
-  Filter,
   Download,
   FileText,
   Calendar,
@@ -46,21 +51,15 @@ export default function AdminPage() {
   const { data: session, status } = useSession() || {};
   const router = useRouter();
   const [requests, setRequests] = useState<Request[]>([]);
-  const [filteredRequests, setFilteredRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
-  const [typeFilter, setTypeFilter] = useState("todos");
-  const [statusFilter, setStatusFilter] = useState("todos");
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
+  const [typeFilter, setTypeFilter] = useState("todos");
 
   useEffect(() => {
     if (status === "authenticated") {
       fetchRequests();
     }
   }, [status]);
-
-  useEffect(() => {
-    filterRequests();
-  }, [requests, typeFilter, statusFilter]);
 
   const fetchRequests = async () => {
     try {
@@ -75,23 +74,27 @@ export default function AdminPage() {
     }
   };
 
-  const filterRequests = () => {
-    let filtered = [...requests];
+  const handleDragEnd = async (result: DropResult) => {
+    const { source, destination, draggableId } = result;
 
-    if (typeFilter !== "todos") {
-      filtered = filtered.filter((req) => req?.type === typeFilter);
+    if (
+      !destination ||
+      (source.droppableId === destination.droppableId &&
+        source.index === destination.index)
+    ) {
+      return;
     }
 
-    if (statusFilter !== "todos") {
-      filtered = filtered.filter((req) => req?.status === statusFilter);
-    }
+    const statusMap: Record<string, string> = {
+      "pendientes": "Pendiente",
+      "en-proceso": "En proceso",
+      "completadas": "Completada",
+    };
 
-    setFilteredRequests(filtered);
-  };
+    const newStatus = statusMap[destination.droppableId];
 
-  const updateStatus = async (requestId: string, newStatus: string) => {
     try {
-      const response = await fetch(`/api/requests/${requestId}/status`, {
+      const response = await fetch(`/api/requests/${draggableId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -99,19 +102,26 @@ export default function AdminPage() {
 
       if (!response.ok) throw new Error("Error updating status");
 
-      await fetchRequests();
-      if (selectedRequest?.id === requestId) {
-        const updatedRequest = requests.find((r) => r?.id === requestId);
-        if (updatedRequest) {
-          setSelectedRequest({ ...updatedRequest, status: newStatus });
-        }
+      setRequests(
+        requests.map((req) =>
+          req.id === draggableId ? { ...req, status: newStatus } : req
+        )
+      );
+
+      if (selectedRequest?.id === draggableId) {
+        setSelectedRequest({ ...selectedRequest, status: newStatus });
       }
     } catch (error) {
       console.error("Error:", error);
+      fetchRequests();
     }
   };
 
-  const downloadFile = async (cloud_storage_path: string, fileName: string, isPublic: boolean) => {
+  const downloadFile = async (
+    cloud_storage_path: string,
+    fileName: string,
+    isPublic: boolean
+  ) => {
     try {
       const response = await fetch(
         `/api/files/download?path=${encodeURIComponent(cloud_storage_path)}&isPublic=${isPublic}`
@@ -151,6 +161,16 @@ export default function AdminPage() {
     );
   };
 
+  const pendingRequests = requests
+    .filter((r) => r.status === "Pendiente")
+    .filter((r) => typeFilter === "todos" || r.type === typeFilter);
+  const inProgressRequests = requests
+    .filter((r) => r.status === "En proceso")
+    .filter((r) => typeFilter === "todos" || r.type === typeFilter);
+  const completedRequests = requests
+    .filter((r) => r.status === "Completada")
+    .filter((r) => typeFilter === "todos" || r.type === typeFilter);
+
   if (status === "loading" || loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -164,6 +184,111 @@ export default function AdminPage() {
     return null;
   }
 
+  const KanbanColumn = ({
+    title,
+    requests: columnRequests,
+    droppableId,
+    count,
+    icon: Icon,
+    color,
+  }: {
+    title: string;
+    requests: Request[];
+    droppableId: string;
+    count: number;
+    icon: any;
+    color: string;
+  }) => (
+    <div className="flex-1 min-w-0">
+      <div className={`rounded-t-lg p-4 ${color}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Icon className="h-5 w-5" />
+            <h3 className="font-bold font-serif">{title}</h3>
+          </div>
+          <span className="bg-black/30 rounded-full px-3 py-1 text-sm font-bold">
+            {count}
+          </span>
+        </div>
+      </div>
+
+      <Droppable droppableId={droppableId}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={`bg-[#0a0a0a] rounded-b-lg p-4 space-y-3 min-h-[500px] ${
+              snapshot.isDraggingOver ? "bg-[#1a1a1a]" : ""
+            }`}
+          >
+            {columnRequests.map((request, index) => (
+              <Draggable key={request.id} draggableId={request.id} index={index}>
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.draggableProps}
+                    {...provided.dragHandleProps}
+                    className={`p-4 bg-[#1a1a1a] rounded-lg border-2 border-[#333333] cursor-move transition-all duration-200 ${
+                      snapshot.isDragging
+                        ? "shadow-lg shadow-[#D4AF37] border-[#D4AF37]"
+                        : "hover:border-[#D4AF37]"
+                    }`}
+                    onClick={() => setSelectedRequest(request)}
+                  >
+                    <div
+                      className="flex items-start justify-between mb-3"
+                    >
+                      <div className="flex items-center space-x-2 flex-1">
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-bold text-white font-serif truncate">
+                            {request.type}
+                          </h4>
+                          <p className="text-xs text-gray-400 font-serif truncate">
+                            {request.reference}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-300 mb-3 line-clamp-2 font-serif">
+                      {request.description}
+                    </p>
+
+                    <div className="space-y-2 text-xs text-gray-400 font-serif mb-3">
+                      <div className="flex items-center space-x-1">
+                        <User className="h-3 w-3" />
+                        <span className="truncate">{request.user?.name}</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>
+                          {new Date(request.date).toLocaleDateString("es-ES")}
+                        </span>
+                      </div>
+                    </div>
+
+                    {request.attachments?.length > 0 && (
+                      <div className="text-xs text-yellow-400 font-serif">
+                        📎 {request.attachments.length} archivo(s)
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {columnRequests.length === 0 && (
+              <div className="text-center py-12">
+                <FileText className="h-8 w-8 text-gray-600 mx-auto mb-2 opacity-50" />
+                <p className="text-gray-500 text-xs font-serif">Sin solicitudes</p>
+              </div>
+            )}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-black">
       <Header />
@@ -175,52 +300,34 @@ export default function AdminPage() {
               src="https://cdn.abacus.ai/images/777878e0-18b8-4d6e-8a78-2f537ba780c5.png"
               alt="Grupo LRP 24 Logo"
               fill
-              className="object-cover"
+              className="object-contain"
             />
           </div>
           <h1 className="text-4xl font-bold text-gradient mb-3 font-serif">Panel de Administración</h1>
           <p className="text-gray-400 text-lg font-serif">Gestiona todas las solicitudes de documentación</p>
         </div>
 
-        {/* Filtros */}
+        {/* Filtro por tipo de documento */}
         <Card className="mb-8 shadow-gold">
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
-              <Filter className="h-5 w-5" />
-              <span>Filtros</span>
+              <FileText className="h-5 w-5" />
+              <span>Filtrar por tipo de documento</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="type-filter">Tipo de Documento</Label>
-                <Select
-                  id="type-filter"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                >
-                  <option value="todos">Todos</option>
-                  <option value="Factura">Factura</option>
-                  <option value="Albarán">Albarán</option>
-                  <option value="Nota de entrega">Nota de entrega</option>
-                  <option value="Contrato">Contrato</option>
-                  <option value="Otros">Otros</option>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="status-filter">Estado</Label>
-                <Select
-                  id="status-filter"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="todos">Todos</option>
-                  <option value="Pendiente">Pendiente</option>
-                  <option value="En proceso">En proceso</option>
-                  <option value="Completada">Completada</option>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+              >
+                <option value="todos">Todos los tipos</option>
+                <option value="Factura">Factura</option>
+                <option value="Albarán">Albarán</option>
+                <option value="Nota de entrega">Nota de entrega</option>
+                <option value="Contrato">Contrato</option>
+                <option value="Otros">Otros</option>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -232,7 +339,9 @@ export default function AdminPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-400 font-serif">Total Solicitudes</p>
-                  <p className="text-3xl font-bold text-[#D4AF37] font-serif">{requests.length}</p>
+                  <p className="text-3xl font-bold text-[#D4AF37] font-serif">
+                    {pendingRequests.length + inProgressRequests.length + completedRequests.length}
+                  </p>
                 </div>
                 <LayoutDashboard className="h-12 w-12 text-[#D4AF37]" />
               </div>
@@ -245,7 +354,7 @@ export default function AdminPage() {
                 <div>
                   <p className="text-sm text-gray-400 font-serif">Pendientes</p>
                   <p className="text-3xl font-bold text-yellow-400 font-serif">
-                    {requests.filter((r) => r?.status === "Pendiente").length}
+                    {pendingRequests.length}
                   </p>
                 </div>
                 <Clock className="h-12 w-12 text-yellow-400" />
@@ -259,7 +368,7 @@ export default function AdminPage() {
                 <div>
                   <p className="text-sm text-gray-400 font-serif">Completadas</p>
                   <p className="text-3xl font-bold text-green-400 font-serif">
-                    {requests.filter((r) => r?.status === "Completada").length}
+                    {completedRequests.length}
                   </p>
                 </div>
                 <CheckCircle className="h-12 w-12 text-green-400" />
@@ -268,83 +377,46 @@ export default function AdminPage() {
           </Card>
         </div>
 
-        {/* Lista de Solicitudes */}
-        <Card className="shadow-gold-lg">
+        {/* Kanban Board */}
+        <Card className="shadow-gold-lg overflow-hidden">
           <CardHeader>
-            <CardTitle>Solicitudes ({filteredRequests.length})</CardTitle>
+            <CardTitle className="flex items-center space-x-2">
+              <FileText className="h-6 w-6" />
+              <span>Gestión Documentos</span>
+            </CardTitle>
             <CardDescription>
-              {filteredRequests.length === 0
-                ? "No hay solicitudes que coincidan con los filtros"
-                : "Click en una solicitud para ver los detalles"}
+              Arrastra las solicitudes entre columnas para cambiar su estado
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            {filteredRequests.length === 0 ? (
-              <div className="text-center py-12">
-                <FileText className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-400 font-serif">No hay solicitudes para mostrar</p>
+          <CardContent className="p-0">
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <div className="flex gap-4 p-6 bg-black overflow-x-auto">
+                <KanbanColumn
+                  title="Pendientes"
+                  requests={pendingRequests}
+                  droppableId="pendientes"
+                  count={pendingRequests.length}
+                  icon={Clock}
+                  color="bg-yellow-900/50 text-yellow-400"
+                />
+                <KanbanColumn
+                  title="En Proceso"
+                  requests={inProgressRequests}
+                  droppableId="en-proceso"
+                  count={inProgressRequests.length}
+                  icon={AlertCircle}
+                  color="bg-blue-900/50 text-blue-400"
+                />
+                <KanbanColumn
+                  title="Completadas"
+                  requests={completedRequests}
+                  droppableId="completadas"
+                  count={completedRequests.length}
+                  icon={CheckCircle}
+                  color="bg-green-900/50 text-green-400"
+                />
               </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredRequests.map((request) => (
-                  <div
-                    key={request?.id}
-                    className="p-6 bg-[#1a1a1a] rounded-lg border-2 border-[#333333] hover:border-[#D4AF37] transition-all duration-300 cursor-pointer"
-                    onClick={() => setSelectedRequest(request)}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <FileText className="h-6 w-6 text-[#D4AF37]" />
-                        <div>
-                          <h3 className="text-lg font-bold text-white font-serif">
-                            {request?.type} - {request?.reference}
-                          </h3>
-                          <div className="flex items-center space-x-4 mt-1 text-sm text-gray-400">
-                            <span className="flex items-center space-x-1 font-serif">
-                              <User className="h-4 w-4" />
-                              <span>{request?.user?.name}</span>
-                            </span>
-                            <span className="flex items-center space-x-1 font-serif">
-                              <Calendar className="h-4 w-4" />
-                              <span>{new Date(request?.date).toLocaleDateString("es-ES")}</span>
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      {getStatusBadge(request?.status)}
-                    </div>
-
-                    <p className="text-gray-300 text-sm mb-4 font-serif line-clamp-2">
-                      {request?.description}
-                    </p>
-
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4 text-sm text-gray-400">
-                        {request?.attachments?.length > 0 && (
-                          <span className="flex items-center space-x-1 font-serif">
-                            <Download className="h-4 w-4" />
-                            <span>{request.attachments.length} archivo(s)</span>
-                          </span>
-                        )}
-                      </div>
-                      <Select
-                        value={request?.status}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateStatus(request?.id, e.target.value);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-48"
-                      >
-                        <option value="Pendiente">Pendiente</option>
-                        <option value="En proceso">En proceso</option>
-                        <option value="Completada">Completada</option>
-                      </Select>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            </DragDropContext>
           </CardContent>
         </Card>
 
@@ -452,7 +524,25 @@ export default function AdminPage() {
                   <Label>Cambiar Estado</Label>
                   <Select
                     value={selectedRequest?.status}
-                    onChange={(e) => updateStatus(selectedRequest?.id, e.target.value)}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setRequests(
+                        requests.map((req) =>
+                          req.id === selectedRequest?.id
+                            ? { ...req, status: newStatus }
+                            : req
+                        )
+                      );
+                      setSelectedRequest({
+                        ...selectedRequest,
+                        status: newStatus,
+                      });
+                      fetch(`/api/requests/${selectedRequest?.id}/status`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: newStatus }),
+                      }).catch(console.error);
+                    }}
                     className="mt-2"
                   >
                     <option value="Pendiente">Pendiente</option>

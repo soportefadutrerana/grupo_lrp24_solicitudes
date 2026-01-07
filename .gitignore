@@ -30,6 +30,38 @@ node_modules/
 package-lock.json
 yarn.lock
 
+# Next.js
+.next/
+out/
+dist/
+build/
+
 # Archivos de entorno
 .env
 .env.local
+.env.*.local
+
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Pruebas
+coverage/
+.nyc_output
+
+# Archivos del SO
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Base de datos
+Database/

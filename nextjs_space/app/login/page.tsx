@@ -56,7 +56,7 @@ export default function LoginPage() {
               src="https://cdn.abacus.ai/images/777878e0-18b8-4d6e-8a78-2f537ba780c5.png"
               alt="Grupo LRP 24 Logo"
               fill
-              className="object-cover"
+              className="object-contain"
             />
           </div>
           <h1 className="text-4xl font-bold text-gradient font-serif tracking-wider">

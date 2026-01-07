@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/header";
@@ -10,7 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Upload, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { FileText, Upload, X, CheckCircle, AlertCircle, Loader2, CalendarIcon } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import Image from "next/image";
 
 interface FileUpload {
@@ -21,17 +26,43 @@ interface FileUpload {
   uploaded: boolean;
 }
 
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export default function DashboardPage() {
   const { data: session, status } = useSession() || {};
   const router = useRouter();
+  const { toast } = useToast();
   const [type, setType] = useState("");
   const [reference, setReference] = useState("");
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
+  const [destinatarioId, setDestinatarioId] = useState("");
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+
+  // Cargar empleados al montar el componente
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        const res = await fetch("/api/employees");
+        if (res.ok) {
+          const data = await res.json();
+          setEmployees(data);
+        }
+      } catch (error) {
+        console.error("Error cargando empleados:", error);
+      } finally {
+        setLoadingEmployees(false);
+      }
+    };
+    fetchEmployees();
+  }, []);
 
   if (status === "loading") {
     return (
@@ -128,7 +159,6 @@ export default function DashboardPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
 
     try {
@@ -149,6 +179,9 @@ export default function DashboardPage() {
           isPublic: true,
         }));
 
+      // Preparar el destinatarioId (null si es vacío o "self")
+      const finalDestinatarioId = destinatarioId && destinatarioId !== "self" ? destinatarioId : null;
+
       // Crear la solicitud
       const response = await fetch("/api/requests", {
         method: "POST",
@@ -158,27 +191,42 @@ export default function DashboardPage() {
           reference,
           date,
           description,
+          destinatarioId: finalDestinatarioId,
           attachments,
         }),
       });
 
-      if (!response.ok) throw new Error("Error al crear la solicitud");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Error al crear la solicitud");
+      }
 
-      setSuccess(true);
+      // Mostrar toast de éxito
+      toast({
+        title: "✅ Éxito",
+        description: "Solicitud creada correctamente",
+        duration: 3000,
+      });
+
       // Limpiar formulario
       setType("");
       setReference("");
       setDate("");
       setDescription("");
+      setDestinatarioId("");
       setFiles([]);
 
       setTimeout(() => {
-        setSuccess(false);
         router.push("/admin");
-      }, 2000);
+      }, 1000);
     } catch (error) {
       console.error("Error:", error);
-      setError("Ocurrió un error al enviar la solicitud. Por favor, inténtalo de nuevo.");
+      toast({
+        title: "❌ Error",
+        description: error instanceof Error ? error.message : "Ocurrió un error al enviar la solicitud",
+        variant: "destructive",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }
@@ -195,33 +243,12 @@ export default function DashboardPage() {
               src="https://cdn.abacus.ai/images/777878e0-18b8-4d6e-8a78-2f537ba780c5.png"
               alt="Grupo LRP 24 Logo"
               fill
-              className="object-cover"
+              className="object-contain"
             />
           </div>
           <h1 className="text-4xl font-bold text-gradient mb-3 font-serif">Nueva Solicitud de Documentación</h1>
           <p className="text-gray-400 text-lg font-serif">Complete el formulario para solicitar la documentación necesaria</p>
         </div>
-
-        {success && (
-          <Card className="mb-8 bg-green-900/20 border-green-600 animate-slide-in">
-            <CardContent className="flex items-center space-x-3 p-4">
-              <CheckCircle className="h-6 w-6 text-green-400" />
-              <div>
-                <p className="font-semibold text-green-400 font-serif">Solicitud enviada exitosamente</p>
-                <p className="text-sm text-green-300 font-serif">Redirigiendo al panel de administración...</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {error && (
-          <Card className="mb-8 bg-red-900/20 border-red-600 animate-slide-in">
-            <CardContent className="flex items-center space-x-3 p-4">
-              <AlertCircle className="h-6 w-6 text-red-400" />
-              <p className="text-red-400 font-serif">{error}</p>
-            </CardContent>
-          </Card>
-        )}
 
         <Card className="shadow-gold-lg">
           <CardHeader>
@@ -259,7 +286,13 @@ export default function DashboardPage() {
                     type="text"
                     placeholder="Ej: PED-2024-001"
                     value={reference}
-                    onChange={(e) => setReference(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Solo permitir números, letras, / \ y -
+                      if (/^[a-zA-Z0-9/\\-]*$/.test(value) || value === '') {
+                        setReference(value);
+                      }
+                    }}
                     required
                     disabled={loading}
                   />
@@ -268,14 +301,49 @@ export default function DashboardPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="date">Fecha *</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                  disabled={loading}
-                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal bg-[#1a1a1a] border-[#333333] hover:bg-[#2a2a2a] text-white"
+                      disabled={loading}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4 text-[#D4AF37]" />
+                      {date ? format(new Date(date), "PPP", { locale: es }) : "Seleccionar fecha"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0 bg-black border-[#333333]" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={date ? new Date(date) : undefined}
+                      onSelect={(selectedDate) => {
+                        if (selectedDate) {
+                          setDate(selectedDate.toISOString().split("T")[0]);
+                        }
+                      }}
+                      disabled={loading}
+                      className="bg-black"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="destinatario">Destinatario</Label>
+                <Select
+                  id="destinatario"
+                  value={destinatarioId}
+                  onChange={(e) => setDestinatarioId(e.target.value)}
+                  disabled={loading || loadingEmployees}
+                >
+                  <option value="">Seleccionar destinatario</option>
+                  <option value="self">Enviarme a mí mismo ({session?.user?.email})</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name} ({employee.email})
+                    </option>
+                  ))}
+                </Select>
               </div>
 
               <div className="space-y-2">

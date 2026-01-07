@@ -1,7 +1,6 @@
 generator client {
     provider = "prisma-client-js"
     binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
-    output = "/home/ubuntu/grupo_lrp24_solicitudes/nextjs_space/node_modules/.prisma/client"
 }
 
 datasource db {
@@ -60,20 +59,34 @@ model VerificationToken {
 }
 
 // Application-specific models
+model Employee {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  requests  Request[]
+
+  @@index([email])
+}
+
 model Request {
-  id          String       @id @default(cuid())
-  type        String       // Factura, Albarán, Nota de entrega, Contrato, Otros
-  reference   String       // Número de pedido/referencia
-  date        DateTime
-  description String       @db.Text
-  status      String       @default("Pendiente") // Pendiente, En proceso, Completada
-  userId      String
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  attachments Attachment[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id              String       @id @default(cuid())
+  type            String       // Factura, Albarán, Nota de entrega, Contrato, Otros
+  reference       String       // Número de pedido/referencia
+  date            DateTime
+  description     String       @db.Text
+  status          String       @default("Pendiente") // Pendiente, En proceso, Completada
+  destinatarioId  String?
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destinatario    Employee?    @relation(fields: [destinatarioId], references: [id], onDelete: SetNull)
+  attachments     Attachment[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@index([userId])
+  @@index([destinatarioId])
   @@index([status])
   @@index([type])
   @@index([createdAt])

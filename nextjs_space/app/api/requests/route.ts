@@ -20,13 +20,32 @@ export async function POST(request: Request) {
     }
 
     const data = await request.json();
-    const { type, reference, date, description, attachments } = data;
+    const { type, reference, date, description, destinatarioId, attachments } = data;
+
+    console.log("📨 Datos recibidos:", { type, reference, date, description, destinatarioId });
 
     if (!type || !reference || !date || !description) {
+      console.log("❌ Campos faltantes - type:", type, "reference:", reference, "date:", date, "description:", description);
       return NextResponse.json(
-        { error: "Todos los campos son requeridos" },
+        { error: "Todos los campos son requeridos (type, reference, date, description)" },
         { status: 400 }
       );
+    }
+
+    // Validar que el destinatarioId existe si fue proporcionado
+    if (destinatarioId) {
+      console.log("🔍 Validando destinatarioId:", destinatarioId);
+      const employee = await prisma.employee.findUnique({
+        where: { id: destinatarioId },
+      });
+      if (!employee) {
+        console.log("❌ Empleado no encontrado con ID:", destinatarioId);
+        return NextResponse.json(
+          { error: "El empleado destinatario no existe" },
+          { status: 400 }
+        );
+      }
+      console.log("✅ Empleado encontrado:", employee.name);
     }
 
     // Crear la solicitud
@@ -36,11 +55,13 @@ export async function POST(request: Request) {
         reference,
         date: new Date(date),
         description,
+        destinatarioId: destinatarioId || null,
         status: "Pendiente",
         userId: (session.user as any).id,
       },
       include: {
         user: true,
+        destinatario: true,
       },
     });
 
